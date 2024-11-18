@@ -1,4 +1,4 @@
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 
 def strict[T: Callable[..., Any]](func: T) -> T:
@@ -21,4 +21,4 @@ def strict[T: Callable[..., Any]](func: T) -> T:
             check_type(arg_name, arg_value, annotations)
         return func(*args, **kwargs)
 
-    return inner
+    return cast(T, inner)
