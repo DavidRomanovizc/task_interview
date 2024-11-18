@@ -1,36 +1,66 @@
 import csv
-from collections import defaultdict
+import json
+from collections import Counter
 
 import httpx
 from bs4 import BeautifulSoup
 
-
-def get_animals_count_by_letter() -> dict[str, int]:
-    url = "https://ru.wikipedia.org/wiki/Категория:Животные_по_алфавиту"
-    response = httpx.get(url)
-    soup = BeautifulSoup(response.content, 'html.parser')
-
-    category_links = soup.find_all('a', class_='CategoryTreeLabel')
-
-    count = defaultdict(int)
-
-    for link in category_links:
-        category_name = link.text.strip()
-        if category_name:
-            first_letter = category_name[0].upper()
-            count[first_letter] += 1
-
-    return count
+BASE_URL = "https://ru.wikipedia.org"
+CATEGORY_URL = f"{BASE_URL}/wiki/Категория:Животные_по_алфавиту"
+CYRILLIC = 'абвгдеёжзиклмнопрстуфхцчшщэюя'
 
 
-def write_to_csv(count: dict[str, int]) -> None:
-    with open('beasts.csv', mode='w', newline='', encoding='utf-8') as file:
+def fetch_animal_names(url: str) -> list[str]:
+    names = []
+    with httpx.Client() as client:
+        while url:
+            response = client.get(url)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, "html.parser")
+
+            names += [li.text for li in soup.select(".mw-category-group ul li a")]
+
+            next_page = soup.find("a", string="Следующая страница")
+            url = f"{BASE_URL}{next_page['href']}" if next_page else None
+
+    return names
+
+
+def count_animals_by_letter(names: list[str]) -> dict[str, int]:
+    counts = Counter(name[0].upper() for name in names if name and name[0].lower() in CYRILLIC)
+
+    return dict(counts)
+
+
+def save_to_csv(data: dict[str, int], filename: str = "beasts.csv") -> None:
+    sorted_data = sorted(data.items())
+
+    with open(filename, mode="w", encoding="utf-8", newline="") as file:
         writer = csv.writer(file)
-        for letter, count in sorted(count.items()):
-            writer.writerow([letter, count])
+        writer.writerow(["Word", "Count"])
+        writer.writerows(sorted_data)
 
 
-if __name__ == '__main__':
-    animals_count = get_animals_count_by_letter()
-    write_to_csv(animals_count)
-    print("Data has been written to beasts.csv")
+def save_names(data: list[str], filename: str = "names.json") -> None:
+    with open(filename, "w", encoding="utf-8") as file:
+        json.dump(data, file, ensure_ascii=False, indent=4)
+
+
+def load_names(filename: str = "names.json") -> list[str]:
+    with open(filename, "r", encoding="utf-8") as file:
+        return json.load(file)
+
+
+def main():
+    try:
+        names = load_names()
+    except FileNotFoundError:
+        names = fetch_animal_names(CATEGORY_URL)
+        save_names(names)
+
+    counts = count_animals_by_letter(names)
+    save_to_csv(counts)
+
+
+if __name__ == "__main__":
+    main()
